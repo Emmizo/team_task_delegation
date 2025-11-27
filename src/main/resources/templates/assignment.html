@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Task Delegation – Assignment</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; background-color: #f7f8fa; }
+        h1, h2 { color: #1f2933; }
+        .card { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.08); margin-bottom: 1.5rem; }
+        label { font-weight: bold; display: block; margin-top: 1rem; }
+        input[type=text], input[type=number], textarea { width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid #cdd5df; margin-top: 0.3rem; }
+        textarea { min-height: 120px; }
+        button { margin-top: 1.2rem; padding: 0.75rem 1.5rem; border: none; border-radius: 6px; background-color: #2563eb; color: #fff; font-size: 1rem; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 0.5rem; border-bottom: 1px solid #e5e7eb; text-align: left; }
+        .error { color: #b91c1c; margin-top: 0.5rem; }
+        nav a { margin-right: 1rem; color: #2563eb; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+<nav>
+    <a href="/assignment">Assignment</a>
+    <a href="/members">Team Members</a>
+</nav>
+
+<div class="card">
+    <h1>New Project Assignment</h1>
+    <p>Describe the work, skill demands, and objectives. The engine will compute a balanced coalition from the current pool.</p>
+    <form th:action="@{/assignment}" th:object="${projectForm}" method="post">
+        <label>Project name
+            <input type="text" th:field="*{projectName}" placeholder="Data mesh platform"/>
+        </label>
+        <div class="error" th:if="${#fields.hasErrors('projectName')}" th:errors="*{projectName}"></div>
+
+        <label>Duration (weeks)
+            <input type="number" step="0.5" min="1" th:field="*{durationWeeks}"/>
+        </label>
+        <div class="error" th:if="${#fields.hasErrors('durationWeeks')}" th:errors="*{durationWeeks}"></div>
+
+        <label>Required skills (one per line, format <code>skill:intensity</code>)
+            <textarea th:field="*{requiredSkillsRaw}"></textarea>
+        </label>
+
+        <label>Objectives (comma separated)
+            <textarea th:field="*{objectivesRaw}"></textarea>
+        </label>
+
+        <div class="error" th:if="${#fields.hasGlobalErrors()}" th:each="err : ${#fields.globalErrors()}" th:text="${err}"></div>
+
+        <button type="submit">Compute Recommendation</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Current member pool</h2>
+    <p>These members participate in matching. Add more profiles on the <a href="/members">team form</a>.</p>
+    <table>
+        <thead>
+        <tr>
+            <th>Name</th>
+            <th>Performance</th>
+            <th>Growth desire</th>
+            <th>Active load (weeks)</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="member : ${members}">
+            <td th:text="${member.name}"></td>
+            <td th:text="${#numbers.formatDecimal(member.recentPerformance, 1, 2)}"></td>
+            <td th:text="${#numbers.formatDecimal(member.growthDesire, 1, 2)}"></td>
+            <td th:text="${#numbers.formatDecimal(member.totalRemainingWeeks, 1, 1)}"></td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(members)}">
+            <td colspan="4">No members yet. Please add profiles first.</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="card" th:if="${lastDecision != null}">
+    <h2>Last recommendation snapshot</h2>
+    <p th:text="'Project: ' + ${lastDecision.demand.projectName}"></p>
+    <p>Suggested members:</p>
+    <ul>
+        <li th:each="member : ${lastDecision.recommendedTeam}"
+            th:text="${member.name}"></li>
+    </ul>
+</div>
+
+</body>
+</html>
+

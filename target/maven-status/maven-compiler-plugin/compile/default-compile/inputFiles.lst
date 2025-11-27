@@ -1,0 +1,16 @@
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/TeamTaskDelegationApplication.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/engine/AssignmentEngine.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/AssignmentDecision.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/AssignmentInsight.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/Member.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/ProjectDemand.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/ProjectLoad.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/SkillProfile.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/simulation/DemoDataFactory.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/simulation/SimulationApp.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/ScenarioRepository.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/controller/AssignmentController.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/controller/MemberController.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/form/MemberForm.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/form/ProjectForm.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/util/TextParser.java

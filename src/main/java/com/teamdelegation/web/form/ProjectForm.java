@@ -1,5 +1,6 @@
 package com.teamdelegation.web.form;
 
+import com.teamdelegation.model.Urgency;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -22,6 +23,10 @@ public class ProjectForm {
      * Format: comma-separated objectives.
      */
     private String objectivesRaw = "";
+
+    private Urgency urgency = Urgency.M;
+
+    private boolean learningOpportunity;
 
     public String getProjectName() {
         return projectName;
@@ -53,6 +58,22 @@ public class ProjectForm {
 
     public void setObjectivesRaw(String objectivesRaw) {
         this.objectivesRaw = objectivesRaw;
+    }
+
+    public Urgency getUrgency() {
+        return urgency;
+    }
+
+    public void setUrgency(Urgency urgency) {
+        this.urgency = urgency != null ? urgency : Urgency.M;
+    }
+
+    public boolean isLearningOpportunity() {
+        return learningOpportunity;
+    }
+
+    public void setLearningOpportunity(boolean learningOpportunity) {
+        this.learningOpportunity = learningOpportunity;
     }
 }
 

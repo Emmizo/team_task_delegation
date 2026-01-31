@@ -58,7 +58,9 @@ public class AssignmentController {
                 form.getProjectName(),
                 requiredSkills,
                 form.getDurationWeeks(),
-                TextParser.parseObjectives(form.getObjectivesRaw())
+                TextParser.parseObjectives(form.getObjectivesRaw()),
+                form.getUrgency(),
+                form.isLearningOpportunity()
         );
 
         AssignmentDecision decision = engine.evaluate(demand, repository.getMembers());

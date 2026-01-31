@@ -1,20 +1,18 @@
 package com.teamdelegation.engine;
 
-import com.teamdelegation.model.AssignmentDecision;
-import com.teamdelegation.model.AssignmentInsight;
-import com.teamdelegation.model.Member;
-import com.teamdelegation.model.ProjectDemand;
+import com.teamdelegation.model.*;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.StringJoiner;
+import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Balanced task assignment via weighted utility optimization.
+ * Constraint: one task → one assignee. Members may be assigned multiple tasks (subject to workload cap).
+ */
 public class AssignmentEngine {
+
+    private static final double THETA_MIN = 0.3;  // skill feasibility threshold
+    private static final double BALANCE_THRESHOLD = 0.3;  // fairness correction trigger
 
     private final double nominalCapacityWeeks;
     private final Weights weights;
@@ -24,178 +22,217 @@ public class AssignmentEngine {
         this.weights = weights;
     }
 
+    /**
+     * Evaluate a single project (treated as one task) and assign to the best member.
+     */
     public AssignmentDecision evaluate(ProjectDemand demand, List<Member> members) {
-        List<AssignmentInsight> insights = members.stream()
-                .map(member -> scoreMember(member, demand))
-                .sorted(Comparator.comparingDouble(AssignmentInsight::getUtilityScore).reversed())
-                .collect(Collectors.toList());
+        Task task = demandToTask(demand);
+        List<Task> tasks = List.of(task);
+        List<TaskAssignment> assignments = assignTasks(tasks, members);
 
-        List<Member> recommendedTeam = pickBalancedTeam(insights, members);
+        TaskAssignment assignment = assignments.isEmpty() ? null : assignments.get(0);
+        List<Member> recommendedTeam = assignment != null ? List.of(assignment.getAssignee()) : List.of();
+        List<AssignmentInsight> insights = buildInsights(task, members);
 
-        return new AssignmentDecision(demand, recommendedTeam, insights);
+        return new AssignmentDecision(demand, recommendedTeam, insights, assignments);
     }
 
-    private List<Member> pickBalancedTeam(List<AssignmentInsight> insights, List<Member> members) {
-        int requiredSkillCount = (int) insights.stream()
-                .findFirst()
-                .map(AssignmentInsight::getSkillFitScore)
-                .map(score -> Math.max(1, (int) Math.round(score * members.size() / 2.0)))
-                .orElse(2);
+    /**
+     * Assign multiple tasks. Each task → one assignee; members may receive multiple tasks.
+     */
+    public List<TaskAssignment> assignTasks(List<Task> tasks, List<Member> members) {
+        if (tasks.isEmpty() || members.isEmpty()) return List.of();
 
-        int nominalTeamSize = Math.min(members.size(), Math.max(2, requiredSkillCount));
+        // 1. Sort tasks by urgency (H→M→L), then duration (short→long)
+        List<Task> sorted = tasks.stream()
+                .sorted(Comparator
+                        .comparing((Task t) -> -t.getUrgency().getWeight())
+                        .thenComparingDouble(Task::getDurationWeeks))
+                .toList();
 
-        List<Member> selected = insights.stream()
-                .limit(nominalTeamSize)
-                .map(insight -> findMemberByName(insight.getMemberName(), members))
-                .collect(Collectors.toCollection(ArrayList::new));
+        // Track cumulative load per member (copy to avoid mutating originals)
+        Map<String, Double> loadByMember = new HashMap<>();
+        for (Member m : members) {
+            loadByMember.put(m.getName(), m.currentLoadRatio(nominalCapacityWeeks) * nominalCapacityWeeks);
+        }
 
-        boolean hasGrowth = selected.stream()
-                .map(member -> findInsight(member.getName(), insights))
-                .anyMatch(insight -> insight != null && insight.getGrowthScore() >= 0.25);
+        List<TaskAssignment> assignments = new ArrayList<>();
 
-        if (!hasGrowth) {
-            AssignmentInsight bestGrowth = insights.stream()
-                    .filter(insight -> insight.getGrowthScore() >= 0.25)
-                    .findFirst()
-                    .orElse(null);
-            if (bestGrowth != null) {
-                Member growthMember = findMemberByName(bestGrowth.getMemberName(), members);
-                if (!selected.contains(growthMember)) {
-                    if (!selected.isEmpty()) {
-                        selected.remove(selected.size() - 1);
-                    }
-                    selected.add(growthMember);
-                }
+        // 2. Greedy: for each task, pick argmax U_iℓ among feasible members
+        for (Task task : sorted) {
+            Member best = selectBestAssignee(task, members, loadByMember);
+            if (best != null) {
+                assignments.add(new TaskAssignment(task, best, computeUtility(task, best, loadByMember)));
+                double currentLoad = loadByMember.get(best.getName());
+                loadByMember.put(best.getName(), currentLoad + task.getDurationWeeks());
             }
         }
 
-        return selected;
+        // 3. Post-assignment balancing
+        reassignForBalance(assignments, members, loadByMember);
+
+        return assignments;
     }
 
-    private AssignmentInsight scoreMember(Member member, ProjectDemand demand) {
-        double loadRatio = member.currentLoadRatio(nominalCapacityWeeks);
-        double capacityScore = clamp(1 - (loadRatio));
+    private Member selectBestAssignee(Task task, List<Member> members, Map<String, Double> loadByMember) {
+        Member best = null;
+        double bestUtility = Double.NEGATIVE_INFINITY;
 
-        double skillFitScore = computeSkillFit(member, demand);
-        double reliabilityScore = member.getRecentPerformance();
-        double growthScore = computeGrowthScore(member, demand, skillFitScore);
-        double objectiveAlignment = computeObjectiveAlignment(member, demand);
-        double durationPenalty = clamp(demand.getDurationWeeks() / (2 * nominalCapacityWeeks));
-
-        double utility = weights.capacity * capacityScore
-                + weights.skill * skillFitScore
-                + weights.reliability * reliabilityScore
-                + weights.growth * growthScore
-                + weights.objective * objectiveAlignment
-                - weights.durationPenalty * durationPenalty;
-
-        String narrative = buildNarrative(member, capacityScore, skillFitScore,
-                reliabilityScore, growthScore, objectiveAlignment, durationPenalty);
-
-        return new AssignmentInsight(member.getName(), utility, capacityScore,
-                skillFitScore, reliabilityScore, growthScore, narrative);
-    }
-
-    private double computeSkillFit(Member member, ProjectDemand demand) {
-        Map<String, Double> required = demand.getRequiredSkills().asMap();
-        if (required.isEmpty()) {
-            return 0;
+        for (Member m : members) {
+            if (!satisfiesWorkloadCap(m, task, loadByMember)) continue;
+            double u = computeUtility(task, m, loadByMember);
+            if (u > bestUtility) {
+                bestUtility = u;
+                best = m;
+            }
         }
-        double achieved = 0;
-        double total = 0;
-        for (Map.Entry<String, Double> entry : required.entrySet()) {
-            double demandLevel = entry.getValue();
-            double memberLevel = member.getExpertise().getLevel(entry.getKey());
-            achieved += Math.min(demandLevel, memberLevel);
-            total += demandLevel;
+        return best;
+    }
+
+    private boolean satisfiesWorkloadCap(Member member, Task task, Map<String, Double> loadByMember) {
+        double currentLoadWeeks = loadByMember.getOrDefault(member.getName(), 0.0);
+        double newLoadWeeks = currentLoadWeeks + task.getDurationWeeks();
+        return newLoadWeeks <= nominalCapacityWeeks;  // w_i + d_ℓ/C_i <= 1
+    }
+
+    /**
+     * U_iℓ = α·(1-w_load) + β·e_i,s + γ·φ_i + δ·learning_bonus
+     */
+    private double computeUtility(Task task, Member member, Map<String, Double> loadByMember) {
+        double wLoad = loadByMember.getOrDefault(member.getName(), 0.0) / nominalCapacityWeeks;
+        double capacityScore = clamp(1 - wLoad);
+
+        String primarySkill = task.getPrimarySkillDomain();
+        double expertiseScore = member.getExpertise().getLevel(primarySkill);
+
+        // Skill feasibility: if e_i,s < θ_min and !learning, heavily penalize
+        if (expertiseScore < THETA_MIN && !task.isLearningOpportunity()) {
+            return -10.0;  // heavily discouraged
         }
-        return achieved / total;
-    }
 
-    private double computeGrowthScore(Member member, ProjectDemand demand, double skillFit) {
-        double stretchGap = Math.max(0, 1 - skillFit);
-        double manageableGap = Math.min(1.0, stretchGap + 0.25);
-        double loadFactor = 1 - member.currentLoadRatio(nominalCapacityWeeks);
-        loadFactor = Math.max(0, loadFactor);
-        return member.getGrowthDesire() * manageableGap * loadFactor;
-    }
+        double performanceScore = member.getRecentPerformance();
 
-    private double computeObjectiveAlignment(Member member, ProjectDemand demand) {
-        Set<String> objectives = demand.getObjectives();
-        if (objectives == null || objectives.isEmpty()) {
-            return 0.4; // neutral prior
+        // Learning bonus: if task offers learning and member not expert, add up to δ
+        double skillFit = computeSkillFit(member, task);
+        double learningBonus = 0.0;
+        if (task.isLearningOpportunity() && skillFit < 1.0) {
+            learningBonus = weights.learning * (1 - skillFit);
         }
-        String expertiseVector = member.getExpertise().getSkillNames().toString().toLowerCase(Locale.ENGLISH);
-        long hits = objectives.stream()
-                .map(obj -> obj.toLowerCase(Locale.ENGLISH))
-                .filter(expertiseVector::contains)
-                .count();
-        return hits / (double) objectives.size();
+
+        return weights.capacity * capacityScore
+                + weights.skill * expertiseScore
+                + weights.reliability * performanceScore
+                + learningBonus;
     }
 
-    private String buildNarrative(Member member,
-                                  double capacityScore,
-                                  double skillFitScore,
-                                  double reliabilityScore,
-                                  double growthScore,
-                                  double objectiveAlignment,
-                                  double durationPenalty) {
-        StringJoiner joiner = new StringJoiner("; ");
-        joiner.add(String.format("%s capacity %.2f (load penalty %.2f)", member.getName(), capacityScore, durationPenalty));
-        joiner.add(String.format("skill fit %.2f, reliability %.2f", skillFitScore, reliabilityScore));
-        joiner.add(String.format("growth %.2f, objectives %.2f", growthScore, objectiveAlignment));
-        return joiner.toString();
+    private double computeSkillFit(Member member, Task task) {
+        var required = task.getRequiredSkills().asMap();
+        if (required.isEmpty()) return 0.5;
+        double achieved = 0, total = 0;
+        for (var e : required.entrySet()) {
+            double demand = e.getValue();
+            double memberLevel = member.getExpertise().getLevel(e.getKey());
+            achieved += Math.min(demand, memberLevel);
+            total += demand;
+        }
+        return total > 0 ? achieved / total : 0;
     }
 
-    private Member findMemberByName(String name, List<Member> members) {
-        return members.stream()
-                .filter(m -> m.getName().equals(name))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown member " + name));
-    }
+    private void reassignForBalance(List<TaskAssignment> assignments, List<Member> members,
+                                    Map<String, Double> loadByMember) {
+        if (assignments.size() < 2) return;
 
-    private AssignmentInsight findInsight(String name, List<AssignmentInsight> insights) {
-        return insights.stream()
-                .filter(i -> i.getMemberName().equals(name))
-                .findFirst()
+        double maxLoad = loadByMember.values().stream().mapToDouble(Double::doubleValue).max().orElse(0);
+        double minLoad = loadByMember.values().stream().mapToDouble(Double::doubleValue).min().orElse(0);
+        if (maxLoad - minLoad <= BALANCE_THRESHOLD * nominalCapacityWeeks) return;
+
+        // Find low-urgency task on most-loaded member, try to move to least-loaded (if skill feasible)
+        Optional<TaskAssignment> toMove = assignments.stream()
+                .filter(a -> a.getTask().getUrgency() == Urgency.L)
+                .max(Comparator.comparingDouble(a -> loadByMember.getOrDefault(a.getAssignee().getName(), 0.0)));
+        if (toMove.isEmpty()) return;
+
+        Member from = toMove.get().getAssignee();
+        Member to = members.stream()
+                .min(Comparator.comparingDouble(m -> loadByMember.getOrDefault(m.getName(), Double.MAX_VALUE)))
                 .orElse(null);
+        if (to == null || to == from) return;
+
+        double fromExpertise = to.getExpertise().getLevel(toMove.get().getTask().getPrimarySkillDomain());
+        if (fromExpertise >= THETA_MIN || toMove.get().getTask().isLearningOpportunity()) {
+            assignments.remove(toMove.get());
+            double fromLoad = loadByMember.get(from.getName()) - toMove.get().getTask().getDurationWeeks();
+            double toLoad = loadByMember.get(to.getName()) + toMove.get().getTask().getDurationWeeks();
+            loadByMember.put(from.getName(), fromLoad);
+            loadByMember.put(to.getName(), toLoad);
+            assignments.add(new TaskAssignment(toMove.get().getTask(), to,
+                    computeUtility(toMove.get().getTask(), to, loadByMember)));
+        }
+    }
+
+    private Task demandToTask(ProjectDemand demand) {
+        return new Task(
+                "task-" + demand.getProjectName().hashCode(),
+                demand.getProjectName(),
+                demand.getDurationWeeks(),
+                demand.getRequiredSkills(),
+                demand.getUrgency(),
+                demand.isLearningOpportunity(),
+                demand.getObjectives()
+        );
+    }
+
+    private List<AssignmentInsight> buildInsights(Task task, List<Member> members) {
+        Map<String, Double> loadByMember = new HashMap<>();
+        for (Member m : members) {
+            loadByMember.put(m.getName(), m.currentLoadRatio(nominalCapacityWeeks) * nominalCapacityWeeks);
+        }
+
+        return members.stream()
+                .map(m -> {
+                    double wLoad = loadByMember.get(m.getName()) / nominalCapacityWeeks;
+                    double capacityScore = clamp(1 - wLoad);
+                    double expertiseScore = m.getExpertise().getLevel(task.getPrimarySkillDomain());
+                    double skillFit = computeSkillFit(m, task);
+                    double learningBonus = task.isLearningOpportunity() && skillFit < 1.0
+                            ? weights.learning * (1 - skillFit) : 0.0;
+                    double utility = weights.capacity * capacityScore + weights.skill * expertiseScore
+                            + weights.reliability * m.getRecentPerformance() + learningBonus;
+                    if (expertiseScore < THETA_MIN && !task.isLearningOpportunity()) utility = -10.0;
+                    String narrative = String.format("capacity %.2f, expertise %.2f, skill fit %.2f, perf %.2f",
+                            capacityScore, expertiseScore, skillFit, m.getRecentPerformance());
+                    return new AssignmentInsight(m.getName(), utility, capacityScore, skillFit,
+                            m.getRecentPerformance(), learningBonus / weights.learning, narrative);
+                })
+                .sorted(Comparator.comparingDouble(AssignmentInsight::getUtilityScore).reversed())
+                .collect(Collectors.toList());
     }
 
     private double clamp(double value) {
-        if (value < 0) {
-            return 0;
-        }
-        if (value > 1) {
-            return 1;
-        }
-        return value;
+        return Math.max(0, Math.min(1, value));
     }
 
     public static class Weights {
-        public final double capacity;
-        public final double skill;
-        public final double reliability;
-        public final double growth;
-        public final double objective;
-        public final double durationPenalty;
+        public final double capacity;   // α
+        public final double skill;      // β
+        public final double reliability; // γ
+        public final double learning;   // δ
 
-        public Weights(double capacity,
-                       double skill,
-                       double reliability,
-                       double growth,
-                       double objective,
-                       double durationPenalty) {
+        public Weights(double capacity, double skill, double reliability, double learning) {
             this.capacity = capacity;
             this.skill = skill;
             this.reliability = reliability;
-            this.growth = growth;
-            this.objective = objective;
-            this.durationPenalty = durationPenalty;
+            this.learning = learning;
         }
 
+        /** Default: α=0.4, β=0.3, γ=0.2, δ=0.1 */
         public static Weights balanced() {
-            return new Weights(0.25, 0.25, 0.2, 0.15, 0.1, 0.05);
+            return new Weights(0.4, 0.3, 0.2, 0.1);
+        }
+
+        /** Legacy: matches old 6-weight signature for backward compat */
+        public static Weights balancedLegacy() {
+            return new Weights(0.25, 0.25, 0.2, 0.1);
         }
     }
 }
-

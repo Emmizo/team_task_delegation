@@ -6,6 +6,9 @@
 /Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/ProjectDemand.java
 /Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/ProjectLoad.java
 /Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/SkillProfile.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/Task.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/TaskAssignment.java
+/Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/model/Urgency.java
 /Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/simulation/DemoDataFactory.java
 /Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/simulation/SimulationApp.java
 /Users/kwizera/sites/java-project/team_task_delegation/src/main/java/com/teamdelegation/web/ScenarioRepository.java

@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-TeamTaskDelegationApplication<team-task-delegation>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.teamdelegation.TeamTaskDelegationApplication",
+            "projectName": "team-task-delegation",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}

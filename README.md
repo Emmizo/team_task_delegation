@@ -45,6 +45,14 @@ java -jar target/team-task-delegation-0.2.0.jar
 
 Then open `http://localhost:8081`:
 
+**If you see "Could not acquire lock(s)"** when Maven or the IDE resolves dependencies, another process is using the local repo. Clear stale locks and retry:
+
+```bash
+rm -rf ~/.m2/repository/.locks
+```
+
+Avoid running `mvn` and the IDE’s Maven build at the same time.
+
 1. Use **Team Members** to capture your roster (the pool starts empty; add at least one member before assigning). Skills use `skill:level`, workload uses `project:weeks`.
 2. Go to **Assignment** to describe the new initiative and generate a recommendation.
 3. The result page explains the suggested coalition plus per-member reasoning so you can defend the decision in review sessions.
